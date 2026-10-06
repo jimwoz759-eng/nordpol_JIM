@@ -12,18 +12,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      # ── 1. Checkout ───────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. Java 8 (project requires source/target 1.6 compat) ───────────────
-      - name: Set up JDK 8
+      # ── 2. JDK 17 先装 Android SDK（sdkmanager 16.0 强制要求 JDK 17+）───────
+      - name: Set up JDK 17 (for Android SDK tools)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '8'
+          java-version: '17'
 
-      # ── 3. Android SDK (platform android-23, build-tools 23.0.2) ─────────────
+      # ── 3. Android SDK setup（用 JDK 17 运行 sdkmanager）────────────────────
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -31,11 +31,18 @@ jobs:
         run: |
           sdkmanager "platforms;android-23" "build-tools;23.0.2"
 
-      # ── 4. SBT (project uses 0.13.8 declared in project/build.properties) ───
+      # ── 4. 切回 JDK 8（SBT 0.13.8 + android-sdk-plugin 1.5.13 需要）────────
+      - name: Set up JDK 8 (for SBT compilation)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      # ── 5. SBT launcher（读取 project/build.properties → 0.13.8）────────────
       - name: Set up SBT
         uses: sbt/setup-sbt@v1
 
-      # ── 5. Cache SBT & Ivy ───────────────────────────────────────────────────
+      # ── 6. Cache SBT & Ivy ───────────────────────────────────────────────────
       - name: Cache SBT
         uses: actions/cache@v4
         with:
@@ -47,12 +54,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sbt-
 
-      # ── 6. Set dummy credentials (same as Travis PR workaround) ──────────────
+      # ── 7. 伪造 S3 凭据（与 Travis PR workaround 相同）──────────────────────
       - name: Set dummy S3 credentials
         run: |
           echo "S3_ACCESS_KEY=invalid" >> $GITHUB_ENV
           echo "S3_SECRET_KEY=invalid" >> $GITHUB_ENV
 
-      # ── 7. Compile & Test ────────────────────────────────────────────────────
+      # ── 8. 编译 & 测试 ───────────────────────────────────────────────────────
       - name: sbt compile test
         run: sbt compile test
