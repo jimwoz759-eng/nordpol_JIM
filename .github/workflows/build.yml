@@ -9,52 +9,61 @@ on:
 jobs:
   build:
     name: Compile & Test (SBT + Android SDK)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # 固定版本，预装 Android SDK 最稳定
 
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. JDK 17 先装 Android SDK（sdkmanager 16.0 强制要求 JDK 17+）───────
-      - name: Set up JDK 17 (for Android SDK tools)
+      # ── 2. JDK 17：sdkmanager 12.x 强制要求 JDK 17+ ─────────────────────────
+      - name: Set up JDK 17 (for sdkmanager)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # ── 3. Android SDK setup（用 JDK 17 运行 sdkmanager）────────────────────
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android platform & build-tools
+      # ── 3. 直接用 runner 预装 SDK，跳过 setup-android action ─────────────────
+      #       ubuntu-22.04 预装路径: /usr/local/lib/android/sdk
+      - name: Accept Android SDK licenses & install packages
         run: |
-          sdkmanager "platforms;android-23" "build-tools;23.0.2"
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT"     >> $GITHUB_ENV
 
-      # ── 4. 切回 JDK 8（SBT 0.13.8 + android-sdk-plugin 1.5.13 需要）────────
-      - name: Set up JDK 8 (for SBT compilation)
+          SDKMANAGER=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
+
+          # 无交互接受所有 license
+          yes | $SDKMANAGER --licenses 2>/dev/null || true
+
+          # 安装 android-23 平台 + build-tools
+          $SDKMANAGER "platforms;android-23" "build-tools;23.0.2"
+
+          echo "✅ 已安装 platforms;android-23  build-tools;23.0.2"
+          $SDKMANAGER --list_installed 2>/dev/null | grep -E "android-23|23\.0\.2" || true
+
+      # ── 4. 切回 JDK 8（SBT 0.13.8 + android-sdk-plugin 1.5.13 的要求）──────
+      - name: Set up JDK 8 (for SBT)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '8'
 
-      # ── 5. SBT launcher（读取 project/build.properties → 0.13.8）────────────
+      # ── 5. SBT launcher（自动读 project/build.properties → 0.13.8）─────────
       - name: Set up SBT
         uses: sbt/setup-sbt@v1
 
-      # ── 6. Cache SBT & Ivy ───────────────────────────────────────────────────
-      - name: Cache SBT
+      # ── 6. Cache SBT / Ivy ───────────────────────────────────────────────────
+      - name: Cache SBT & Ivy
         uses: actions/cache@v4
         with:
           path: |
             ~/.sbt
             ~/.ivy2/cache
-            ~/.coursier/cache
           key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/plugins.sbt', '**/build.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-sbt-
+          restore-keys: ${{ runner.os }}-sbt-
 
-      # ── 7. 伪造 S3 凭据（与 Travis PR workaround 相同）──────────────────────
+      # ── 7. 伪造 S3 凭据（与原 Travis PR workaround 相同）────────────────────
       - name: Set dummy S3 credentials
         run: |
           echo "S3_ACCESS_KEY=invalid" >> $GITHUB_ENV
